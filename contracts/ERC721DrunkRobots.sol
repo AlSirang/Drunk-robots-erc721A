@@ -9,8 +9,8 @@ import "@openzeppelin/contracts/access/Ownable.sol";
 contract ERC721DrunkRobots is IERC2981, ERC721Enumerable, Ownable {
     using Strings for uint256;
 
-    uint16 public constant ARTISTS_ROYALTIES = 1000; // the minter will get 10% for each token, which he mints, sales.
-    uint16 public constant maxSupply = 10000; 
+    uint16 public constant ROYALTIES = 1000; // the minter will get 10% for each token, which he mints, sales.
+    uint16 public constant maxSupply = 10000;
     uint16 public reserve = 350; // tokens reserve for the owner
     uint16 public publicSupply = maxSupply - reserve; // tokens avaiable for public to  mint
     uint256 public mintLimit = 20; // initially, only 20 tokens per address are allowd to mint.
@@ -20,8 +20,6 @@ contract ERC721DrunkRobots is IERC2981, ERC721Enumerable, Ownable {
     bool public mintingEnabled;
     bool internal locked;
 
-    mapping(uint256 => address) private tokenIdToOwner; // mapping for tokenId to the creator address
-
     modifier noReentry() {
         require(!locked, "No re-entrancy");
         locked = true;
@@ -30,10 +28,10 @@ contract ERC721DrunkRobots is IERC2981, ERC721Enumerable, Ownable {
     }
 
     event MintPriceUpdated(uint256 price);
-    event Withdrawal(address indexed, uint256 price, uint256 time);
+    event Withdrawal(address indexed owner, uint256 price, uint256 time);
 
-    constructor(string memory _baseURI) ERC721("Drunk Robots", "DR") {
-        baseURI = _baseURI;
+    constructor(string memory _uri) ERC721("Drunk Robots", "DR") {
+        baseURI = _uri;
     }
 
     /**
@@ -49,7 +47,6 @@ contract ERC721DrunkRobots is IERC2981, ERC721Enumerable, Ownable {
         );
 
         for (uint16 i = 0; i < amount; i++) {
-            tokenIdToOwner[totalSupply()] = to;
             _safeMint(msg.sender, totalSupply());
         }
     }
@@ -123,20 +120,20 @@ contract ERC721DrunkRobots is IERC2981, ERC721Enumerable, Ownable {
     }
 
     /**
-    *
-    * @dev it will update the mint limit aka amount of nfts a wallet can hold.
-    * @param _mintLimit is new value for the limit
-    */
-    function setMintLimit(uint256 _mintLimit) external onlyOwner{
+     *
+     * @dev it will update the mint limit aka amount of nfts a wallet can hold.
+     * @param _mintLimit is new value for the limit
+     */
+    function setMintLimit(uint256 _mintLimit) external onlyOwner {
         mintLimit = _mintLimit;
     }
 
     /**
      * @dev it will update baseURI for tokens.
-     * @param _baseURI is new URI for tokens
+     * @param _uri is new URI for tokens
      */
-    function setBaseURI(string memory _baseURI) external onlyOwner {
-        baseURI = _baseURI;
+    function setBaseURI(string memory _uri) external onlyOwner {
+        baseURI = _uri;
     }
 
     /**
@@ -187,10 +184,7 @@ contract ERC721DrunkRobots is IERC2981, ERC721Enumerable, Ownable {
             _exists(_tokenId),
             "ERC2981RoyaltyStandard: Royalty info for nonexistent token"
         );
-        return (
-            tokenIdToOwner[_tokenId],
-            (_salePrice * ARTISTS_ROYALTIES) / 10000
-        );
+        return (address(this), (_salePrice * ROYALTIES) / 10000);
     }
 
     receive() external payable {}
