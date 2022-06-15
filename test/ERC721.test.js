@@ -148,6 +148,35 @@ contract("ERC721DrunkRobots", ([deployer, minter, artist, feeAccount]) => {
     });
   });
 
+  describe("deploy contracts, mint and test withdraw:", async () => {
+    beforeEach(async () => {
+      const mintPrice = await nft.mintPrice();
+      const volume = 10;
+      // minting first token, id 0
+      receipt = await nft.publicMint(volume, {
+        from: minter,
+        value: mintPrice * volume,
+      });
+    });
+    it("non owner", async () => {
+      await expectRevert(
+        nft.withdraw({
+          from: minter,
+        }),
+        "Ownable: caller is not the owner"
+      );
+    });
+
+    it("by owner", async () => {
+      receipt = await nft.withdraw({
+        from: deployer,
+      });
+      expectEvent(receipt, "Withdrawal", {
+        owner: deployer,
+      });
+    });
+  });
+
   describe("deploy contracts, test supports interfaces:", () => {
     it("supports the IERC721 interface", async () => {
       // supportsInterface https://docs.openzeppelin.com/contracts/4.x/api/utils#ERC165
