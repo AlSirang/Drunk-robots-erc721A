@@ -135,12 +135,9 @@ contract("ERC721DrunkRobots", ([deployer, minter, artist, feeAccount]) => {
       ({ receiver, royaltyAmount } = await nft.royaltyInfo("0", eth));
     });
 
-    it("balance", async () => {
-      expect(await nft.balanceOf(minter)).to.be.bignumber.equal(new BN(1));
-    });
-
-    it("royalty amount", async () => {
-      expect(royaltyAmount).to.be.bignumber.equal(ether("0.1"));
+    it.only("royalty amount", async () => {
+      const percentage = 1 * 0.035;
+      expect(royaltyAmount).to.be.bignumber.equal(ether(percentage.toString()));
     });
 
     it("royalty receiver", async () => {

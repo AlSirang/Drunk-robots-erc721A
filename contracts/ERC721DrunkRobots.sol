@@ -9,7 +9,7 @@ import "@openzeppelin/contracts/access/Ownable.sol";
 contract ERC721DrunkRobots is IERC2981, ERC721Enumerable, Ownable {
     using Strings for uint256;
 
-    uint16 public constant ROYALTIES = 1000; // the minter will get 10% for each token, which he mints, sales.
+    uint16 public constant ROYALTIES = 350; // the minter will get 3.5% for each token, which he mints, sales.
     uint16 public constant maxSupply = 10000;
     uint16 public reserve = 350; // tokens reserve for the owner
     uint16 public publicSupply = maxSupply - reserve; // tokens avaiable for public to  mint
