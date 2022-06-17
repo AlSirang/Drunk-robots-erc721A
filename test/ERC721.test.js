@@ -124,27 +124,6 @@ contract("ERC721DrunkRobots", ([deployer, minter, artist, feeAccount]) => {
     });
   });
 
-  describe("deploy contracts, test royalty info:", () => {
-    let royaltyAmount = null,
-      receiver = null;
-    beforeEach(async () => {
-      const mintPrice = await nft.mintPrice();
-      // minting first token, id 0
-      receipt = await nft.publicMint(1, { from: minter, value: mintPrice * 1 });
-      const eth = ether("1");
-      ({ receiver, royaltyAmount } = await nft.royaltyInfo("0", eth));
-    });
-
-    it.only("royalty amount", async () => {
-      const percentage = 1 * 0.035;
-      expect(royaltyAmount).to.be.bignumber.equal(ether(percentage.toString()));
-    });
-
-    it("royalty receiver", async () => {
-      expect(receiver).to.be.equal(nft.address);
-    });
-  });
-
   describe("deploy contracts, mint and test withdraw:", async () => {
     beforeEach(async () => {
       const mintPrice = await nft.mintPrice();
@@ -171,6 +150,87 @@ contract("ERC721DrunkRobots", ([deployer, minter, artist, feeAccount]) => {
       expectEvent(receipt, "Withdrawal", {
         owner: deployer,
       });
+    });
+  });
+
+  describe("deploy contracts, test royalty info:", () => {
+    let royaltyAmount = null,
+      receiver = null;
+    beforeEach(async () => {
+      const mintPrice = await nft.mintPrice();
+      // minting first token, id 0
+      receipt = await nft.publicMint(1, { from: minter, value: mintPrice * 1 });
+      const eth = ether("1");
+      ({ receiver, royaltyAmount } = await nft.royaltyInfo("0", eth));
+    });
+
+    it("royalty amount", async () => {
+      const percentage = 1 * 0.035;
+      expect(royaltyAmount).to.be.bignumber.equal(ether(percentage.toString()));
+    });
+
+    it("royalty receiver", async () => {
+      expect(receiver).to.be.equal(nft.address);
+    });
+  });
+
+  describe("deploy contracts, update royalties:", async () => {
+    it("not owner ", async () => {
+      await expectRevert(
+        nft.setRoyalties("0", {
+          from: minter,
+        }),
+        "Ownable: caller is not the owner"
+      );
+    });
+    it("should revert for percentage 0 ", async () => {
+      await expectRevert(
+        nft.setRoyalties("0", {
+          from: deployer,
+        }),
+        "royalties should be between 0 and 90"
+      );
+    });
+
+    it("should revert for percentage more than 90", async () => {
+      await expectRevert(
+        nft.setRoyalties("91", {
+          from: deployer,
+        }),
+        "royalties should be between 0 and 90"
+      );
+    });
+
+    it("RoyaltiesUpdated event", async function () {
+      receipt = await nft.setRoyalties("10", {
+        from: deployer,
+      });
+
+      expectEvent(receipt, "RoyaltiesUpdated", {
+        royalties: "10",
+      });
+
+      receipt = await nft.getPastEvents("RoyaltiesUpdated", {
+        fromBlock: 0,
+        toBlock: "latest",
+      });
+
+      expect(receipt[0]["returnValues"]["royalties"]).to.be.bignumber.equal(
+        new BN(10)
+      );
+    });
+    it("royalty amount", async () => {
+      await nft.setRoyalties("10", {
+        from: deployer,
+      });
+
+      const mintPrice = await nft.mintPrice();
+      let royaltyAmount = null;
+      await nft.publicMint(1, { from: minter, value: mintPrice * 1 });
+      const eth = ether("1");
+      ({ royaltyAmount } = await nft.royaltyInfo("0", eth));
+      const percentage = 1 * 0.1;
+      expect(royaltyAmount).to.be.bignumber.equal(ether(percentage.toString()));
     });
   });
 

@@ -9,12 +9,12 @@ import "@openzeppelin/contracts/access/Ownable.sol";
 contract ERC721DrunkRobots is IERC2981, ERC721Enumerable, Ownable {
     using Strings for uint256;
 
-    uint16 public constant ROYALTIES = 350; // the minter will get 3.5% for each token, which he mints, sales.
     uint16 public constant maxSupply = 10000;
     uint16 public reserve = 350; // tokens reserve for the owner
     uint16 public publicSupply = maxSupply - reserve; // tokens avaiable for public to  mint
     uint256 public mintLimit = 20; // initially, only 20 tokens per address are allowd to mint.
     uint256 public mintPrice = 0.02 ether; // mint price per token
+    uint16 public royalties = 350; //  royalties for secondary sale
     string public baseURI;
 
     bool public mintingEnabled;
@@ -29,6 +29,7 @@ contract ERC721DrunkRobots is IERC2981, ERC721Enumerable, Ownable {
 
     event MintPriceUpdated(uint256 price);
     event Withdrawal(address indexed owner, uint256 price, uint256 time);
+    event RoyaltiesUpdated(uint256 royalties);
 
     constructor(string memory _uri) ERC721("Drunk Robots", "DR") {
         baseURI = _uri;
@@ -137,6 +138,21 @@ contract ERC721DrunkRobots is IERC2981, ERC721Enumerable, Ownable {
     }
 
     /**
+     * @dev it will update the royalties for token
+     * @param _royalties is new percentage of royalties. it should be more than 0 and least 90
+     */
+    function setRoyalties(uint16 _royalties) external onlyOwner {
+        require(
+            _royalties > 0 && _royalties < 90,
+            "royalties should be between 0 and 90"
+        );
+
+        royalties = (_royalties * 100); // convert percentage into bps
+
+        emit RoyaltiesUpdated(_royalties);
+    }
+
+    /**
      * @dev it is only callable by Contract owner. it will toggle minting status.
      */
     function toggleMinting() external onlyOwner {
@@ -184,7 +200,7 @@ contract ERC721DrunkRobots is IERC2981, ERC721Enumerable, Ownable {
             _exists(_tokenId),
             "ERC2981RoyaltyStandard: Royalty info for nonexistent token"
         );
-        return (address(this), (_salePrice * ROYALTIES) / 10000);
+        return (address(this), (_salePrice * royalties) / 10000);
     }
 
     receive() external payable {}
