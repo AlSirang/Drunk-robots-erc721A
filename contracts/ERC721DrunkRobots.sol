@@ -2,23 +2,28 @@
 pragma solidity ^0.8.1;
 
 import "@openzeppelin/contracts/token/ERC721/ERC721.sol";
+import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/token/ERC721/extensions/ERC721Enumerable.sol";
 import "@openzeppelin/contracts/interfaces/IERC2981.sol";
-import "@openzeppelin/contracts/access/Ownable.sol";
+import "@openzeppelin/contracts/utils/cryptography/MerkleProof.sol";
 
 contract ERC721DrunkRobots is IERC2981, ERC721Enumerable, Ownable {
     using Strings for uint256;
 
-    uint16 public constant maxSupply = 10000;
-    uint16 public reserve = 350; // tokens reserve for the owner
-    uint16 public publicSupply = maxSupply - reserve; // tokens avaiable for public to  mint
-    uint256 public mintLimit = 20; // initially, only 20 tokens per address are allowd to mint.
     uint256 public mintPrice = 0.02 ether; // mint price per token
-    uint16 public royalties = 350; //  royalties for secondary sale
-    string public baseURI;
+    uint16 public mintLimit = 20; // initially, only 20 tokens per address are allowd to mint.
+    uint16 public constant maxSupply = 10000;
+    uint16 private reserve = 350; // tokens reserve for the owner
+    uint16 private publicSupply = maxSupply - reserve; // tokens avaiable for public to  mint
+    uint16 private royalties = 350; //  royalties for secondary sale
 
-    bool public mintingEnabled;
-    bool internal locked;
+    bool public isPublicMintingEnable;
+    bool public isWhitelistMintingEnable;
+    bool private locked;
+
+    string public baseURI;
+    bytes32 public merkleRoot;
+    mapping(address => bool) whitelistClaimed;
 
     modifier noReentry() {
         require(!locked, "No re-entrancy");
@@ -27,6 +32,16 @@ contract ERC721DrunkRobots is IERC2981, ERC721Enumerable, Ownable {
         locked = false;
     }
 
+    modifier mintRequirements(uint16 volume) {
+        require(volume > 0, "You Must Mint at least one token");
+        require(
+            totalSupply() <= publicSupply &&
+                balanceOf(_msgSender()) + volume <= mintLimit,
+            "no more tokens than mint limit"
+        );
+        require(msg.value >= mintPrice * volume, "low price!");
+        _;
+    }
     event MintPriceUpdated(uint256 price);
     event Withdrawal(address indexed owner, uint256 price, uint256 time);
     event RoyaltiesUpdated(uint256 royalties);
@@ -36,41 +51,53 @@ contract ERC721DrunkRobots is IERC2981, ERC721Enumerable, Ownable {
     }
 
     /**
-     * @dev private function to mint given amount of tokens.
+     * @dev private function to mint given amount of tokens
      * @param to is the address to which the tokens will be minted
      * @param amount is the quantity of tokens to be minted
      */
-    function mint(address to, uint16 amount) private {
-        require(to != address(0x0), "cannot mint to null address");
+    function __mint(address to, uint16 amount) private noReentry {
         require(
             (totalSupply() + amount) <= maxSupply,
             "Request will exceed max supply!"
         );
 
         for (uint16 i = 0; i < amount; i++) {
-            _safeMint(msg.sender, totalSupply());
+            _safeMint(to, totalSupply());
         }
     }
 
     /**
-     * @dev  It will mint from tokens allocated for public for owner.
+     * @dev  it will allow the whitelisted wallets to mint tokens
      * @param volume is the quantity of tokens to be minted
+     * @param _merkleProof is markel tree hash proof for the address
      */
-    function publicMint(uint16 volume) public payable noReentry {
-        require(mintingEnabled == true, "minting is not enabled");
-        require(volume > 0, "You Must Mint at least one token");
+    function whitelistMint(uint16 volume, bytes32[] calldata _merkleProof)
+        external
+        payable
+        mintRequirements(volume)
+    {
+        require(isWhitelistMintingEnable, "minting is not enabled");
+        require(!whitelistClaimed[_msgSender()], "already claimed");
+        bytes32 leaf = keccak256(abi.encodePacked(_msgSender()));
         require(
-            totalSupply() <= publicSupply &&
-                balanceOf(msg.sender) + volume <= mintLimit,
-            "no more tokens than mint limit"
+            MerkleProof.verify(_merkleProof, merkleRoot, leaf),
+            "Invalid proof"
         );
-        require(msg.value >= mintPrice * volume, "low price!");
-        mint(msg.sender, volume);
+
+        __mint(_msgSender(), volume);
+
+        whitelistClaimed[_msgSender()] = true;
     }
 
-    /***************************/
-    /***** VIEW FUNCTIONS *****/
-    /***************************/
+    /**
+     * @dev  It will mint from tokens allocated for public for owner
+     * @param volume is the quantity of tokens to be minted
+     */
+    function mint(uint16 volume) external payable mintRequirements(volume) {
+        require(isPublicMintingEnable, "minting is not enabled");
+
+        __mint(_msgSender(), volume);
+    }
 
     /**
      * @dev it will return tokenURI for given tokenIdToOwner
@@ -89,30 +116,39 @@ contract ERC721DrunkRobots is IERC2981, ERC721Enumerable, Ownable {
         return string(abi.encodePacked(baseURI, _tokenId.toString(), ".json"));
     }
 
-    /**
-     * @dev it will return balance of contract
-     */
-    function getContractBalance() public view returns (uint256) {
-        return address(this).balance;
-    }
-
     /***************************/
     /***** ADMIN FUNCTIONS *****/
     /***************************/
 
     /**
-     * @dev mint function only callable by the Contract owner. It will mint from reserve tokens for owner.
+     * @dev it is only callable by Contract owner. it will toggle public minting status
+     */
+    function togglePublicMintingStatus() external onlyOwner {
+        isPublicMintingEnable = !isPublicMintingEnable;
+    }
+
+    /**
+     * @dev it is only callable by Contract owner. it will toggle whitelist minting status
+     */
+    function toggleWhitelistMintingStatus() external onlyOwner {
+        isWhitelistMintingEnable = !isWhitelistMintingEnable;
+    }
+
+    /**
+     * @dev mint function only callable by the Contract owner. It will mint from reserve tokens for owner
      * @param to is the address to which the tokens will be minted
      * @param amount is the quantity of tokens to be minted
      */
     function mintFromReserve(address to, uint16 amount) external onlyOwner {
-        require(amount <= reserve, "no more reserve!");
-        mint(to, amount);
+        unchecked {
+            require(amount < (reserve + 1), "no more in reserve");
+        }
         reserve -= amount;
+        __mint(to, amount);
     }
 
     /**
-     * @dev it will update mint price.
+     * @dev it will update mint price
      * @param _mintPrice is new value for mint
      */
     function setMintPrice(uint256 _mintPrice) external onlyOwner {
@@ -122,15 +158,19 @@ contract ERC721DrunkRobots is IERC2981, ERC721Enumerable, Ownable {
 
     /**
      *
-     * @dev it will update the mint limit aka amount of nfts a wallet can hold.
+     * @dev it will update the mint limit aka amount of nfts a wallet can hold
      * @param _mintLimit is new value for the limit
      */
-    function setMintLimit(uint256 _mintLimit) external onlyOwner {
+    function setMintLimit(uint16 _mintLimit) external onlyOwner {
         mintLimit = _mintLimit;
     }
 
+    function setMerkleRoot(bytes32 _merkleRoot) external onlyOwner {
+        merkleRoot = _merkleRoot;
+    }
+
     /**
-     * @dev it will update baseURI for tokens.
+     * @dev it will update baseURI for tokens
      * @param _uri is new URI for tokens
      */
     function setBaseURI(string memory _uri) external onlyOwner {
@@ -153,16 +193,9 @@ contract ERC721DrunkRobots is IERC2981, ERC721Enumerable, Ownable {
     }
 
     /**
-     * @dev it is only callable by Contract owner. it will toggle minting status.
+     * @dev it is only callable by Contract owner. it will withdraw balace of contract
      */
-    function toggleMinting() external onlyOwner {
-        mintingEnabled = !mintingEnabled;
-    }
-
-    /**
-     * @dev it is only callable by Contract owner. it will withdraw balace of contract.
-     */
-    function withdraw() external onlyOwner noReentry {
+    function withdraw() external onlyOwner {
         uint256 balance = address(this).balance;
         bool success = payable(msg.sender).send(address(this).balance);
         require(success, "Payment did not go through!");
@@ -186,7 +219,7 @@ contract ERC721DrunkRobots is IERC2981, ERC721Enumerable, Ownable {
     }
 
     /**
-     *  @dev it retruns the amount of royalty the owner will recive for
+     *  @dev it retruns the amount of royalty the owner will receive for given tokenId
      *  @param _tokenId is valid token number
      *  @param _salePrice is amount for which token will be traded
      */

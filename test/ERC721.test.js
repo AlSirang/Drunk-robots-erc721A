@@ -10,10 +10,17 @@ const {
   ether,
 } = require("@openzeppelin/test-helpers"); // https://docs.openzeppelin.com/test-helpers/0.5/api
 const { web3 } = require("@openzeppelin/test-environment");
-
+const {
+  getMerkleTreeRootHash,
+  getMerkleProof,
+  getInvalidHash,
+  getUpdateRootHash,
+} = require("./merkelTree");
 const ERC721DrunkRobots = artifacts.require("./ERC721DrunkRobots");
 
-contract("ERC721DrunkRobots", ([deployer, minter, artist, feeAccount]) => {
+contract("ERC721DrunkRobots", (accounts) => {
+  const [deployer, minter, accountX, feeAccount, whitelist, blacklist] =
+    accounts;
   let nft;
   let receipt;
   const BASE_URI = "https://drunkrobots.net/nft/metadata/";
@@ -22,7 +29,8 @@ contract("ERC721DrunkRobots", ([deployer, minter, artist, feeAccount]) => {
   const SYMBOL = "DR";
   beforeEach(async () => {
     nft = await ERC721DrunkRobots.new(BASE_URI);
-    await nft.toggleMinting({ from: deployer });
+    await nft.togglePublicMintingStatus({ from: deployer });
+    await nft.toggleWhitelistMintingStatus({ from: deployer });
   });
 
   describe("deploy contracts, test state values:", () => {
@@ -38,15 +46,16 @@ contract("ERC721DrunkRobots", ([deployer, minter, artist, feeAccount]) => {
       expect(await nft.maxSupply()).to.be.bignumber.eq(new BN(10000));
     });
 
-    it("reserve", async () => {
-      expect(await nft.reserve()).to.be.bignumber.eq(new BN(350));
-    });
     it("initial mint limit", async () => {
       expect(await nft.mintLimit()).to.be.bignumber.eq(new BN(20));
     });
 
-    it("should be minting status false", async () => {
-      expect(await nft.mintingEnabled()).to.be.eq(true);
+    it("public minting status false", async () => {
+      expect(await nft.isPublicMintingEnable()).to.be.eq(true);
+    });
+
+    it("whitelist minting status false", async () => {
+      expect(await nft.isPublicMintingEnable()).to.be.eq(true);
     });
   });
 
@@ -54,7 +63,7 @@ contract("ERC721DrunkRobots", ([deployer, minter, artist, feeAccount]) => {
     beforeEach(async () => {
       const mintPrice = await nft.mintPrice();
       // minting first token, id 0
-      receipt = await nft.publicMint(1, { from: minter, value: mintPrice * 1 });
+      receipt = await nft.mint(1, { from: minter, value: mintPrice * 1 });
     });
 
     it("total supply", async () => {
@@ -101,7 +110,7 @@ contract("ERC721DrunkRobots", ([deployer, minter, artist, feeAccount]) => {
       const volume = mintLimit + 1;
 
       await expectRevert(
-        nft.publicMint(volume, {
+        nft.mint(volume, {
           from: minter,
           value: mintPrice * volume,
         }),
@@ -115,11 +124,70 @@ contract("ERC721DrunkRobots", ([deployer, minter, artist, feeAccount]) => {
       const volume = mintLimit - 10;
 
       await expectRevert(
-        nft.publicMint(volume, {
+        nft.mint(volume, {
           from: minter,
           value: mintPrice * volume - 1000000,
         }),
         "low price!"
+      );
+    });
+  });
+
+  describe("deploy contracts, mint from reserve", function () {
+    const toknesMinted = 10;
+    beforeEach(async () => {
+      receipt = await nft.mintFromReserve(accountX, toknesMinted, {
+        from: deployer,
+      });
+    });
+
+    it("balance", async () => {
+      expect(await nft.balanceOf(accountX)).to.be.bignumber.equal(
+        new BN(toknesMinted)
+      );
+    });
+    it("Emitted Transfer event for all tokens", async function () {
+      for (let i = 0; i < toknesMinted; i++) {
+        expectEvent(receipt, "Transfer", {
+          from: constants.ZERO_ADDRESS,
+          to: accountX,
+          tokenId: i.toString(),
+        });
+      }
+    });
+
+    it("Transfer all tokens to the 'to' address ", async () => {
+      receipt = await nft.getPastEvents("Transfer", {
+        fromBlock: 0,
+        toBlock: "latest",
+      });
+      for (let i = 0; i < toknesMinted; i++) {
+        expect(receipt[i]["args"]["from"]).to.be.equal(constants.ZERO_ADDRESS);
+        expect(receipt[i]["args"]["to"]).to.be.equal(accountX);
+        expect(receipt[i]["args"]["tokenId"]).to.be.bignumber.equal(new BN(i));
+      }
+    });
+  });
+
+  describe("deploy contracts, mint all tokens from reserve", function () {
+    const toknesMinted = 200;
+
+    beforeEach(async () => {
+      await nft.mintFromReserve(deployer, toknesMinted, {
+        from: deployer,
+      });
+    });
+
+    it("balance", async () => {
+      expect(await nft.balanceOf(deployer)).to.be.bignumber.equal(
+        new BN(toknesMinted)
+      );
+    });
+
+    it("should revert on reserve limit exceeded", async () => {
+      await expectRevert(
+        nft.mintFromReserve(minter, toknesMinted),
+        "no more in reserve"
       );
     });
   });
@@ -129,7 +197,7 @@ contract("ERC721DrunkRobots", ([deployer, minter, artist, feeAccount]) => {
       const mintPrice = await nft.mintPrice();
       const volume = 10;
       // minting first token, id 0
-      receipt = await nft.publicMint(volume, {
+      receipt = await nft.mint(volume, {
         from: minter,
         value: mintPrice * volume,
       });
@@ -159,7 +227,7 @@ contract("ERC721DrunkRobots", ([deployer, minter, artist, feeAccount]) => {
     beforeEach(async () => {
       const mintPrice = await nft.mintPrice();
       // minting first token, id 0
-      receipt = await nft.publicMint(1, { from: minter, value: mintPrice * 1 });
+      receipt = await nft.mint(1, { from: minter, value: mintPrice * 1 });
       const eth = ether("1");
       ({ receiver, royaltyAmount } = await nft.royaltyInfo("0", eth));
     });
@@ -226,7 +294,7 @@ contract("ERC721DrunkRobots", ([deployer, minter, artist, feeAccount]) => {
 
       const mintPrice = await nft.mintPrice();
       let royaltyAmount = null;
-      await nft.publicMint(1, { from: minter, value: mintPrice * 1 });
+      await nft.mint(1, { from: minter, value: mintPrice * 1 });
       const eth = ether("1");
       ({ royaltyAmount } = await nft.royaltyInfo("0", eth));
       const percentage = 1 * 0.1;
@@ -235,44 +303,100 @@ contract("ERC721DrunkRobots", ([deployer, minter, artist, feeAccount]) => {
   });
 
   describe("deploy contracts, test supports interfaces:", () => {
+    // supportsInterface https://docs.openzeppelin.com/contracts/4.x/api/utils#ERC165
+    // Returns true if this contract implements the interface defined by interfaceId.
+    // See the corresponding EIP section (https://eips.ethereum.org/EIPS/eip-165#how-interfaces-are-identified) to learn more about how these ids are created.
+    // the interface id can be foud on the eip page https://eips.ethereum.org/EIPS/eip-721
     it("supports the IERC721 interface", async () => {
-      // supportsInterface https://docs.openzeppelin.com/contracts/4.x/api/utils#ERC165
-      // Returns true if this contract implements the interface defined by interfaceId.
-      // See the corresponding EIP section (https://eips.ethereum.org/EIPS/eip-165#how-interfaces-are-identified) to learn more about how these ids are created.
-      // the interface id can be foud on the eip page https://eips.ethereum.org/EIPS/eip-721
       expect(await nft.supportsInterface("0x80ac58cd")).to.be.equal(true);
     });
 
     it("supports the IERC721Enumerable interface", async () => {
-      // supportsInterface https://docs.openzeppelin.com/contracts/4.x/api/utils#ERC165
-      // Returns true if this contract implements the interface defined by interfaceId.
-      // See the corresponding EIP section (https://eips.ethereum.org/EIPS/eip-165#how-interfaces-are-identified) to learn more about how these ids are created.
-      // the interface id can be foud on the eip page https://eips.ethereum.org/EIPS/eip-721
       expect(await nft.supportsInterface("0x780e9d63")).to.be.equal(true);
     });
 
     it("supports the IERC721Metadata interface", async () => {
-      // supportsInterface https://docs.openzeppelin.com/contracts/4.x/api/utils#ERC165
-      // Returns true if this contract implements the interface defined by interfaceId.
-      // See the corresponding EIP section (https://eips.ethereum.org/EIPS/eip-165#how-interfaces-are-identified) to learn more about how these ids are created.
-      // the interface id can be foud on the eip page https://eips.ethereum.org/EIPS/eip-721
       expect(await nft.supportsInterface("0x5b5e139f")).to.be.equal(true);
     });
 
     it("supports the IERC165 interface", async () => {
-      // supportsInterface https://docs.openzeppelin.com/contracts/4.x/api/utils#ERC165
-      // Returns true if this contract implements the interface defined by interfaceId.
-      // See the corresponding EIP section (https://eips.ethereum.org/EIPS/eip-165#how-interfaces-are-identified) to learn more about how these ids are created.
-      // the interface id can be foud on the eip page https://eips.ethereum.org/EIPS/eip-721
       expect(await nft.supportsInterface("0x01ffc9a7")).to.be.equal(true);
     });
 
     it("supports the IERC2981 interface", async () => {
-      // supportsInterface https://docs.openzeppelin.com/contracts/4.x/api/utils#ERC165
-      // Returns true if this contract implements the interface defined by interfaceId.
-      // See the corresponding EIP section (https://eips.ethereum.org/EIPS/eip-165#how-interfaces-are-identified) to learn more about how these ids are created.
-      // the interface id can be foud on the eip page https://eips.ethereum.org/EIPS/eip-721
       expect(await nft.supportsInterface("0x2a55205a")).to.be.equal(true);
+    });
+  });
+
+  describe("whitelist mint", () => {
+    beforeEach(async () => {
+      const root = getMerkleTreeRootHash([
+        deployer,
+        minter,
+        accountX,
+        feeAccount,
+        whitelist,
+      ]);
+      await nft.setMerkleRoot(root);
+    });
+
+    it("allow to mint whitelist address(s)", async () => {
+      const merkleProof = getMerkleProof(whitelist);
+
+      const mintPrice = await nft.mintPrice();
+      receipt = await nft.whitelistMint(1, merkleProof, {
+        from: whitelist,
+        value: mintPrice * 1,
+      });
+
+      expect(await nft.ownerOf(0)).to.be.equal(whitelist);
+
+      expect(await nft.balanceOf(whitelist)).to.be.bignumber.equal(new BN(1));
+
+      expectEvent(receipt, "Transfer", {
+        from: constants.ZERO_ADDRESS,
+        to: whitelist,
+        tokenId: "0",
+      });
+
+      receipt = await nft.getPastEvents("Transfer", {
+        fromBlock: 0,
+        toBlock: "latest",
+      });
+
+      expect(receipt[0]["args"]["from"]).to.be.equal(constants.ZERO_ADDRESS);
+      expect(receipt[0]["args"]["to"]).to.be.equal(whitelist);
+      expect(receipt[0]["args"]["tokenId"]).to.be.bignumber.equal(new BN(0));
+      // check that total supply matches last minted token id, subtracting 1 from totalSupply because current total supply starts at 1 while tokens start at 0
+      expect(receipt[0]["args"]["tokenId"]).to.be.bignumber.equal(
+        new BN((await nft.totalSupply()) - 1)
+      );
+    });
+
+    it("not allow to mint none-whitelist address(s)", async () => {
+      const merkleProof = getInvalidHash(blacklist);
+
+      const mintPrice = await nft.mintPrice();
+      await expectRevert(
+        nft.whitelistMint(1, merkleProof, {
+          from: blacklist,
+          value: mintPrice * 1,
+        }),
+        "Invalid proof"
+      );
+    });
+
+    it("not mint with valid proof but invalid whitelist address(s)", async () => {
+      const merkleProof = getMerkleProof(whitelist);
+
+      const mintPrice = await nft.mintPrice();
+      await expectRevert(
+        nft.whitelistMint(1, merkleProof, {
+          from: blacklist,
+          value: mintPrice * 1,
+        }),
+        "Invalid proof"
+      );
     });
   });
 });
