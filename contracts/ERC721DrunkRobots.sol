@@ -22,8 +22,7 @@ contract ERC721DrunkRobots is IERC2981, ERC721Enumerable, Ownable {
     bool private locked;
 
     string public baseURI;
-    bytes32 public merkleRoot;
-    mapping(address => bool) whitelistClaimed;
+    bytes32 private merkleRoot;
 
     modifier noReentry() {
         require(!locked, "No re-entrancy");
@@ -77,7 +76,6 @@ contract ERC721DrunkRobots is IERC2981, ERC721Enumerable, Ownable {
         mintRequirements(volume)
     {
         require(isWhitelistMintingEnable, "minting is not enabled");
-        require(!whitelistClaimed[_msgSender()], "already claimed");
         bytes32 leaf = keccak256(abi.encodePacked(_msgSender()));
         require(
             MerkleProof.verify(_merkleProof, merkleRoot, leaf),
@@ -85,8 +83,6 @@ contract ERC721DrunkRobots is IERC2981, ERC721Enumerable, Ownable {
         );
 
         __mint(_msgSender(), volume);
-
-        whitelistClaimed[_msgSender()] = true;
     }
 
     /**
