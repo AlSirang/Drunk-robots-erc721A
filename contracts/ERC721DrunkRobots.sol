@@ -1,13 +1,20 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.1;
 
-import "@openzeppelin/contracts/token/ERC721/ERC721.sol";
+pragma solidity >=0.8.9 <0.9.0;
+
+import "erc721a/contracts/extensions/ERC721AQueryable.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
-import "@openzeppelin/contracts/token/ERC721/extensions/ERC721Enumerable.sol";
-import "@openzeppelin/contracts/interfaces/IERC2981.sol";
 import "@openzeppelin/contracts/utils/cryptography/MerkleProof.sol";
+import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
+import "@openzeppelin/contracts/interfaces/IERC2981.sol";
+import "@openzeppelin/contracts/utils/Strings.sol";
 
-contract ERC721DrunkRobots is IERC2981, ERC721Enumerable, Ownable {
+contract ERC721DrunkRobots is
+    ERC721AQueryable,
+    Ownable,
+    IERC2981,
+    ReentrancyGuard
+{
     using Strings for uint256;
 
     uint256 public mintPrice = 0.02 ether; // mint price per token
@@ -19,17 +26,9 @@ contract ERC721DrunkRobots is IERC2981, ERC721Enumerable, Ownable {
 
     bool public isPublicMintingEnable;
     bool public isWhitelistMintingEnable;
-    bool private locked;
 
     string public baseURI;
     bytes32 private merkleRoot;
-
-    modifier noReentry() {
-        require(!locked, "No re-entrancy");
-        locked = true;
-        _;
-        locked = false;
-    }
 
     modifier mintRequirements(uint16 volume) {
         require(volume > 0, "You Must Mint at least one token");
@@ -45,7 +44,7 @@ contract ERC721DrunkRobots is IERC2981, ERC721Enumerable, Ownable {
     event Withdrawal(address indexed owner, uint256 price, uint256 time);
     event RoyaltiesUpdated(uint256 royalties);
 
-    constructor(string memory _uri) ERC721("Drunk Robots", "DR") {
+    constructor(string memory _uri) ERC721A("Drunk Robots", "DR") {
         baseURI = _uri;
     }
 
@@ -54,15 +53,13 @@ contract ERC721DrunkRobots is IERC2981, ERC721Enumerable, Ownable {
      * @param to is the address to which the tokens will be minted
      * @param amount is the quantity of tokens to be minted
      */
-    function __mint(address to, uint16 amount) private noReentry {
+    function __mint(address to, uint16 amount) private {
         require(
             (totalSupply() + amount) <= maxSupply,
             "Request will exceed max supply!"
         );
 
-        for (uint16 i = 0; i < amount; i++) {
-            _safeMint(to, totalSupply());
-        }
+        _safeMint(to, amount);
     }
 
     /**
@@ -102,7 +99,7 @@ contract ERC721DrunkRobots is IERC2981, ERC721Enumerable, Ownable {
     function tokenURI(uint256 _tokenId)
         public
         view
-        override
+        override(ERC721A, IERC721A)
         returns (string memory)
     {
         require(
@@ -206,7 +203,7 @@ contract ERC721DrunkRobots is IERC2981, ERC721Enumerable, Ownable {
         public
         view
         virtual
-        override(IERC165, ERC721Enumerable)
+        override(ERC721A,IERC721A, IERC165)
         returns (bool)
     {
         return

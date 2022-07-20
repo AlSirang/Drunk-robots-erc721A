@@ -170,7 +170,7 @@ contract("ERC721DrunkRobots", (accounts) => {
   });
 
   describe("deploy contracts, mint all tokens from reserve", function () {
-    const toknesMinted = 200;
+    const toknesMinted = 350;
 
     beforeEach(async () => {
       await nft.mintFromReserve(deployer, toknesMinted, {
@@ -185,10 +185,7 @@ contract("ERC721DrunkRobots", (accounts) => {
     });
 
     it("should revert on reserve limit exceeded", async () => {
-      await expectRevert(
-        nft.mintFromReserve(minter, toknesMinted),
-        "no more in reserve"
-      );
+      await expectRevert(nft.mintFromReserve(minter, 1), "no more in reserve");
     });
   });
 
@@ -311,9 +308,9 @@ contract("ERC721DrunkRobots", (accounts) => {
       expect(await nft.supportsInterface("0x80ac58cd")).to.be.equal(true);
     });
 
-    it("supports the IERC721Enumerable interface", async () => {
-      expect(await nft.supportsInterface("0x780e9d63")).to.be.equal(true);
-    });
+    // it("supports the IERC721Enumerable interface", async () => {
+    //   expect(await nft.supportsInterface("0x780e9d63")).to.be.equal(true);
+    // });
 
     it("supports the IERC721Metadata interface", async () => {
       expect(await nft.supportsInterface("0x5b5e139f")).to.be.equal(true);
