@@ -18,11 +18,11 @@ contract ERC721DrunkRobots is
     using Strings for uint256;
 
     uint256 public mintPrice = 0.02 ether; // mint price per token
-    uint16 public mintLimit = 20; // initially, only 20 tokens per address are allowd to mint.
+    uint16 public mintLimit = 5; // initially, only 20 tokens per address are allowd to mint.
     uint16 public constant maxSupply = 10000;
-    uint16 private reserve = 350; // tokens reserve for the owner
-    uint16 private publicSupply = maxSupply - reserve; // tokens avaiable for public to  mint
-    uint16 private royalties = 350; //  royalties for secondary sale
+    uint16 private reserve = 400; // tokens reserve for the owner
+    uint16 private publicSupply = maxSupply - reserve; // tokens avaiable for public to mint
+    uint16 private royalties = 500; // royalties for secondary sale
 
     bool public isPublicMintingEnable;
     bool public isWhitelistMintingEnable;
@@ -203,7 +203,7 @@ contract ERC721DrunkRobots is
         public
         view
         virtual
-        override(ERC721A,IERC721A, IERC165)
+        override(ERC721A, IERC721A, IERC165)
         returns (bool)
     {
         return

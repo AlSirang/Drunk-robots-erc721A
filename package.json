@@ -22,6 +22,7 @@
   },
   "devDependencies": {
     "keccak256": "^1.0.6",
-    "merkletreejs": "^0.2.32"
+    "merkletreejs": "^0.2.32",
+    "truffle": "^5.5.22"
   }
 }
