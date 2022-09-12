@@ -27,13 +27,23 @@ contract("ERC721DrunkRobots", (accounts) => {
   const TOKEN_URI = `${BASE_URI}0.json`;
   const NAME = "Drunk Robots";
   const SYMBOL = "DR";
+
+  const RESERVED_TOKENS = 400;
+  const MAX_SUPPLY = 10000;
+
+  const whitelistedAddresses = [
+    deployer,
+    minter,
+    accountX,
+    feeAccount,
+    whitelist,
+  ];
   beforeEach(async () => {
     nft = await ERC721DrunkRobots.new(BASE_URI);
     await nft.togglePublicMintingStatus({ from: deployer });
-    await nft.toggleWhitelistMintingStatus({ from: deployer });
   });
 
-  describe("deploy contracts, test state values:", () => {
+  describe("deploy contract, test state values:", () => {
     it("name", async () => {
       expect(await nft.name()).to.be.eq(NAME);
     });
@@ -43,11 +53,11 @@ contract("ERC721DrunkRobots", (accounts) => {
     });
 
     it("max supply", async () => {
-      expect(await nft.maxSupply()).to.be.bignumber.eq(new BN(10000));
+      expect(await nft.maxSupply()).to.be.bignumber.eq(new BN(MAX_SUPPLY));
     });
 
     it("initial mint limit", async () => {
-      expect(await nft.mintLimit()).to.be.bignumber.eq(new BN(20));
+      expect(await nft.mintLimit()).to.be.bignumber.eq(new BN(5));
     });
 
     it("public minting status false", async () => {
@@ -59,15 +69,20 @@ contract("ERC721DrunkRobots", (accounts) => {
     });
   });
 
-  describe("deploy contracts, test mint:", () => {
+  describe("deploy contract, test mint:", () => {
+    const tokens = 1;
     beforeEach(async () => {
       const mintPrice = await nft.mintPrice();
       // minting first token, id 0
-      receipt = await nft.mint(1, { from: minter, value: mintPrice * 1 });
+
+      receipt = await nft.mint(tokens, {
+        from: minter,
+        value: mintPrice * tokens,
+      });
     });
 
     it("total supply", async () => {
-      expect(await nft.totalSupply()).to.be.bignumber.eq(new BN(1));
+      expect(await nft.totalSupply()).to.be.bignumber.eq(new BN(tokens));
     });
 
     it("BASE + TOKEN URI", async () => {
@@ -80,7 +95,7 @@ contract("ERC721DrunkRobots", (accounts) => {
     });
 
     it("balance", async () => {
-      expect(await nft.balanceOf(minter)).to.be.bignumber.equal(new BN(1));
+      expect(await nft.balanceOf(minter)).to.be.bignumber.equal(new BN(tokens));
     });
 
     it("Transfer event", async function () {
@@ -119,9 +134,8 @@ contract("ERC721DrunkRobots", (accounts) => {
     });
 
     it("low price", async () => {
-      const mintLimit = await nft.mintLimit();
+      const volume = 1;
       const mintPrice = await nft.mintPrice();
-      const volume = mintLimit - 10;
 
       await expectRevert(
         nft.mint(volume, {
@@ -133,7 +147,7 @@ contract("ERC721DrunkRobots", (accounts) => {
     });
   });
 
-  describe("deploy contracts, mint from reserve", function () {
+  describe("deploy contract, mint from reserve", function () {
     const toknesMinted = 10;
     beforeEach(async () => {
       receipt = await nft.mintFromReserve(accountX, toknesMinted, {
@@ -169,30 +183,10 @@ contract("ERC721DrunkRobots", (accounts) => {
     });
   });
 
-  describe("deploy contracts, mint all tokens from reserve", function () {
-    const toknesMinted = 350;
-
-    beforeEach(async () => {
-      await nft.mintFromReserve(deployer, toknesMinted, {
-        from: deployer,
-      });
-    });
-
-    it("balance", async () => {
-      expect(await nft.balanceOf(deployer)).to.be.bignumber.equal(
-        new BN(toknesMinted)
-      );
-    });
-
-    it("should revert on reserve limit exceeded", async () => {
-      await expectRevert(nft.mintFromReserve(minter, 1), "no more in reserve");
-    });
-  });
-
-  describe("deploy contracts, mint and test withdraw:", async () => {
+  describe("deploy contract, mint and test withdraw:", async () => {
     beforeEach(async () => {
       const mintPrice = await nft.mintPrice();
-      const volume = 10;
+      const volume = 5;
       // minting first token, id 0
       receipt = await nft.mint(volume, {
         from: minter,
@@ -212,13 +206,12 @@ contract("ERC721DrunkRobots", (accounts) => {
       receipt = await nft.withdraw({
         from: deployer,
       });
-      expectEvent(receipt, "Withdrawal", {
-        owner: deployer,
-      });
+
+      expect(receipt.receipt.status).to.be.eq(true);
     });
   });
 
-  describe("deploy contracts, test royalty info:", () => {
+  describe("deploy contract, test royalty info:", () => {
     let royaltyAmount = null,
       receiver = null;
     beforeEach(async () => {
@@ -230,76 +223,89 @@ contract("ERC721DrunkRobots", (accounts) => {
     });
 
     it("royalty amount", async () => {
-      const percentage = 1 * 0.035;
+      const percentage = 1 * 0.05;
       expect(royaltyAmount).to.be.bignumber.equal(ether(percentage.toString()));
     });
 
     it("royalty receiver", async () => {
-      expect(receiver).to.be.equal(nft.address);
+      expect(receiver).to.be.equal(deployer);
     });
   });
 
-  describe("deploy contracts, update royalties:", async () => {
-    it("not owner ", async () => {
-      await expectRevert(
-        nft.setRoyalties("0", {
-          from: minter,
-        }),
-        "Ownable: caller is not the owner"
-      );
+  describe("deploy contract, royalties update", () => {
+    let mintPrice = 0;
+    const oneEth = ether("1");
+    beforeEach(async () => {
+      mintPrice = await nft.mintPrice();
     });
-    it("should revert for percentage 0 ", async () => {
-      await expectRevert(
-        nft.setRoyalties("0", {
+
+    describe("update royalties Amount", () => {
+      it("not owner ", async () => {
+        await expectRevert(
+          nft.setRoyalties("0", {
+            from: minter,
+          }),
+          "Ownable: caller is not the owner"
+        );
+      });
+
+      it("should revert for percentage 0 ", async () => {
+        await expectRevert(
+          nft.setRoyalties("0", {
+            from: deployer,
+          }),
+          "royalties should be between 0 and 90"
+        );
+      });
+      it("should revert for percentage more than 90", async () => {
+        await expectRevert(
+          nft.setRoyalties("91", {
+            from: deployer,
+          }),
+          "royalties should be between 0 and 90"
+        );
+      });
+
+      it("royalty amount", async () => {
+        await nft.setRoyalties("10", {
           from: deployer,
-        }),
-        "royalties should be between 0 and 90"
-      );
+        });
+
+        let royaltyAmount = null;
+        await nft.mint(1, { from: minter, value: mintPrice * 1 });
+        ({ royaltyAmount } = await nft.royaltyInfo("0", oneEth));
+        const percentage = 1 * 0.1;
+        expect(royaltyAmount).to.be.bignumber.equal(
+          ether(percentage.toString())
+        );
+      });
     });
 
-    it("should revert for percentage more than 90", async () => {
-      await expectRevert(
-        nft.setRoyalties("91", {
+    describe("update royalties receiver", () => {
+      it("not owner ", async () => {
+        await expectRevert(
+          nft.setRoyaltiesReceiver(accountX, {
+            from: minter,
+          }),
+          "Ownable: caller is not the owner"
+        );
+      });
+
+      it("update royalites receiver ", async () => {
+        await nft.setRoyaltiesReceiver(accountX, {
           from: deployer,
-        }),
-        "royalties should be between 0 and 90"
-      );
-    });
+        });
+        const mintPrice = await nft.mintPrice();
 
-    it("RoyaltiesUpdated event", async function () {
-      receipt = await nft.setRoyalties("10", {
-        from: deployer,
+        await nft.mint(1, { from: minter, value: mintPrice * 1 });
+        ({ receiver } = await nft.royaltyInfo("0", oneEth));
+
+        expect(receiver).to.be.eq(accountX);
       });
-
-      expectEvent(receipt, "RoyaltiesUpdated", {
-        royalties: "10",
-      });
-
-      receipt = await nft.getPastEvents("RoyaltiesUpdated", {
-        fromBlock: 0,
-        toBlock: "latest",
-      });
-
-      expect(receipt[0]["returnValues"]["royalties"]).to.be.bignumber.equal(
-        new BN(10)
-      );
-    });
-    it("royalty amount", async () => {
-      await nft.setRoyalties("10", {
-        from: deployer,
-      });
-
-      const mintPrice = await nft.mintPrice();
-      let royaltyAmount = null;
-      await nft.mint(1, { from: minter, value: mintPrice * 1 });
-      const eth = ether("1");
-      ({ royaltyAmount } = await nft.royaltyInfo("0", eth));
-      const percentage = 1 * 0.1;
-      expect(royaltyAmount).to.be.bignumber.equal(ether(percentage.toString()));
     });
   });
 
-  describe("deploy contracts, test supports interfaces:", () => {
+  describe("deploy contract, test supports interfaces:", () => {
     // supportsInterface https://docs.openzeppelin.com/contracts/4.x/api/utils#ERC165
     // Returns true if this contract implements the interface defined by interfaceId.
     // See the corresponding EIP section (https://eips.ethereum.org/EIPS/eip-165#how-interfaces-are-identified) to learn more about how these ids are created.
@@ -325,20 +331,14 @@ contract("ERC721DrunkRobots", (accounts) => {
     });
   });
 
-  describe("whitelist mint", () => {
+  describe("deploy contract, test whitelist mint", () => {
     beforeEach(async () => {
-      const root = getMerkleTreeRootHash([
-        deployer,
-        minter,
-        accountX,
-        feeAccount,
-        whitelist,
-      ]);
+      const root = getMerkleTreeRootHash(whitelistedAddresses);
       await nft.setMerkleRoot(root);
     });
 
     it("allow to mint whitelist address(s)", async () => {
-      const merkleProof = getMerkleProof(whitelist);
+      const merkleProof = getMerkleProof(whitelist, whitelistedAddresses);
 
       const mintPrice = await nft.mintPrice();
       receipt = await nft.whitelistMint(1, merkleProof, {
@@ -384,7 +384,7 @@ contract("ERC721DrunkRobots", (accounts) => {
     });
 
     it("not mint with valid proof but invalid whitelist address(s)", async () => {
-      const merkleProof = getMerkleProof(whitelist);
+      const merkleProof = getMerkleProof(whitelist, whitelistedAddresses);
 
       const mintPrice = await nft.mintPrice();
       await expectRevert(
@@ -394,6 +394,65 @@ contract("ERC721DrunkRobots", (accounts) => {
         }),
         "Invalid proof"
       );
+    });
+  });
+
+  describe("deploy contract, mint all tokens", function () {
+    describe("mint all tokens from reserve", function () {
+      beforeEach(async () => {
+        await nft.mintFromReserve(deployer, RESERVED_TOKENS, {
+          from: deployer,
+        });
+      });
+
+      it("balance", async () => {
+        expect(await nft.balanceOf(deployer)).to.be.bignumber.equal(
+          new BN(RESERVED_TOKENS)
+        );
+      });
+
+      it("should revert on reserve limit exceeded", async () => {
+        await expectRevert(
+          nft.mintFromReserve(minter, 1),
+          "no more in reserve"
+        );
+      });
+    });
+
+    describe("mint", () => {
+      beforeEach(async () => {
+        await nft.mintFromReserve(deployer, RESERVED_TOKENS, {
+          from: deployer,
+        });
+        await nft.setMintPrice("0", { from: deployer });
+        await nft.setMintLimit("10000", { from: deployer });
+        for (let account of accounts) {
+          let volume = 1000;
+          if (account == deployer) volume -= RESERVED_TOKENS;
+          await nft.mint(volume, { from: account });
+        }
+      });
+
+      it("mint public nfts", async () => {
+        accounts.forEach(async function (account) {
+          let volume = 1000;
+          expect(await nft.balanceOf(account)).to.be.bignumber.equal(
+            new BN(volume)
+          );
+        });
+      });
+
+      it("total public supply should be 9600", async () => {
+        const publicSupply = 9600;
+
+        expect((await nft.totalSupply()) - RESERVED_TOKENS).to.be.eq(
+          publicSupply
+        );
+      });
+
+      it("total supply should be 10000", async () => {
+        expect(await nft.totalSupply()).to.be.bignumber.eq(new BN(MAX_SUPPLY));
+      });
     });
   });
 });
