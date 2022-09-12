@@ -16,36 +16,29 @@ contract ERC721DrunkRobots is
     ReentrancyGuard
 {
     using Strings for uint256;
-
+    uint256 private _publicSupplyCount; // offers counter
     uint256 public mintPrice = 0.02 ether; // mint price per token
-    uint16 public mintLimit = 5; // initially, only 20 tokens per address are allowd to mint.
     uint16 public constant maxSupply = 10000;
     uint16 private reserve = 400; // tokens reserve for the owner
     uint16 private publicSupply = maxSupply - reserve; // tokens avaiable for public to mint
+    uint16 public mintLimit = 5; // initially, only 20 tokens per address are allowd to mint.
     uint16 private royalties = 500; // royalties for secondary sale
-
     bool public isPublicMintingEnable;
-    bool public isWhitelistMintingEnable;
-
     string public baseURI;
     bytes32 private merkleRoot;
+    address private royaltiesReceiver;
 
     modifier mintRequirements(uint16 volume) {
         require(volume > 0, "You Must Mint at least one token");
         require(
-            totalSupply() <= publicSupply &&
+            (_publicSupplyCount <= publicSupply) &&
                 balanceOf(_msgSender()) + volume <= mintLimit,
             "no more tokens than mint limit"
         );
         require(msg.value >= mintPrice * volume, "low price!");
-        _;
-    }
-    event MintPriceUpdated(uint256 price);
-    event Withdrawal(address indexed owner, uint256 price, uint256 time);
-    event RoyaltiesUpdated(uint256 royalties);
 
-    constructor(string memory _uri) ERC721A("Drunk Robots", "DR") {
-        baseURI = _uri;
+        _publicSupplyCount += volume;
+        _;
     }
 
     /**
@@ -72,7 +65,6 @@ contract ERC721DrunkRobots is
         payable
         mintRequirements(volume)
     {
-        require(isWhitelistMintingEnable, "minting is not enabled");
         bytes32 leaf = keccak256(abi.encodePacked(_msgSender()));
         require(
             MerkleProof.verify(_merkleProof, merkleRoot, leaf),
@@ -88,7 +80,6 @@ contract ERC721DrunkRobots is
      */
     function mint(uint16 volume) external payable mintRequirements(volume) {
         require(isPublicMintingEnable, "minting is not enabled");
-
         __mint(_msgSender(), volume);
     }
 
@@ -121,20 +112,13 @@ contract ERC721DrunkRobots is
     }
 
     /**
-     * @dev it is only callable by Contract owner. it will toggle whitelist minting status
-     */
-    function toggleWhitelistMintingStatus() external onlyOwner {
-        isWhitelistMintingEnable = !isWhitelistMintingEnable;
-    }
-
-    /**
      * @dev mint function only callable by the Contract owner. It will mint from reserve tokens for owner
      * @param to is the address to which the tokens will be minted
      * @param amount is the quantity of tokens to be minted
      */
     function mintFromReserve(address to, uint16 amount) external onlyOwner {
         unchecked {
-            require(amount < (reserve + 1), "no more in reserve");
+            require(amount <= reserve, "no more in reserve");
         }
         reserve -= amount;
         __mint(to, amount);
@@ -146,11 +130,9 @@ contract ERC721DrunkRobots is
      */
     function setMintPrice(uint256 _mintPrice) external onlyOwner {
         mintPrice = _mintPrice;
-        emit MintPriceUpdated(_mintPrice);
     }
 
     /**
-     *
      * @dev it will update the mint limit aka amount of nfts a wallet can hold
      * @param _mintLimit is new value for the limit
      */
@@ -158,6 +140,10 @@ contract ERC721DrunkRobots is
         mintLimit = _mintLimit;
     }
 
+    /**
+     * @dev it will update the root Hash for merkel tree (for whitelist minting)
+     * @param _merkleRoot is the root Hash for merkel tree
+     */
     function setMerkleRoot(bytes32 _merkleRoot) external onlyOwner {
         merkleRoot = _merkleRoot;
     }
@@ -171,6 +157,18 @@ contract ERC721DrunkRobots is
     }
 
     /**
+     * @dev it will update the address for royalties receiver
+     * @param _royaltiesReceiver is new royalty receiver
+     */
+    function setRoyaltiesReceiver(address _royaltiesReceiver)
+        external
+        onlyOwner
+    {
+        require(_royaltiesReceiver != address(0));
+        royaltiesReceiver = _royaltiesReceiver;
+    }
+
+    /**
      * @dev it will update the royalties for token
      * @param _royalties is new percentage of royalties. it should be more than 0 and least 90
      */
@@ -181,18 +179,14 @@ contract ERC721DrunkRobots is
         );
 
         royalties = (_royalties * 100); // convert percentage into bps
-
-        emit RoyaltiesUpdated(_royalties);
     }
 
     /**
      * @dev it is only callable by Contract owner. it will withdraw balace of contract
      */
     function withdraw() external onlyOwner {
-        uint256 balance = address(this).balance;
         bool success = payable(msg.sender).send(address(this).balance);
         require(success, "Payment did not go through!");
-        emit Withdrawal(msg.sender, block.timestamp, balance);
     }
 
     /******************************/
@@ -226,10 +220,11 @@ contract ERC721DrunkRobots is
             _exists(_tokenId),
             "ERC2981RoyaltyStandard: Royalty info for nonexistent token"
         );
-        return (address(this), (_salePrice * royalties) / 10000);
+        return (royaltiesReceiver, (_salePrice * royalties) / 10000);
     }
 
-    receive() external payable {}
-
-    fallback() external payable {}
+    constructor(string memory _uri) ERC721A("Drunk Robots", "DR") {
+        baseURI = _uri;
+        royaltiesReceiver = msg.sender;
+    }
 }
