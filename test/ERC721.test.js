@@ -63,10 +63,6 @@ contract("ERC721DrunkRobots", (accounts) => {
     it("public minting status false", async () => {
       expect(await nft.isPublicMintingEnable()).to.be.eq(true);
     });
-
-    it("whitelist minting status false", async () => {
-      expect(await nft.isPublicMintingEnable()).to.be.eq(true);
-    });
   });
 
   describe("deploy contract, test mint:", () => {
